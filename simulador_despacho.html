@@ -1,0 +1,261 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Simulador de Despacho Energético - Colombia</title>
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    <style>
+        body {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            background-color: #f4f7f6;
+            color: #333;
+            margin: 0;
+            padding: 20px;
+            display: flex;
+            justify-content: center;
+        }
+        .container {
+            background-color: #fff;
+            border-radius: 8px;
+            box-shadow: 0 4px 8px rgba(0,0,0,0.1);
+            max-width: 800px;
+            width: 100%;
+            padding: 30px;
+        }
+        h1 {
+            text-align: center;
+            color: #2c3e50;
+            margin-bottom: 5px;
+        }
+        p.subtitle {
+            text-align: center;
+            color: #7f8c8d;
+            margin-top: 0;
+            margin-bottom: 30px;
+            font-size: 0.9em;
+        }
+        .controls {
+            background-color: #ecf0f1;
+            padding: 20px;
+            border-radius: 6px;
+            margin-bottom: 30px;
+        }
+        .control-group {
+            margin-bottom: 15px;
+        }
+        label {
+            display: block;
+            font-weight: bold;
+            margin-bottom: 8px;
+            color: #34495e;
+        }
+        input[type="range"] {
+            width: 100%;
+            cursor: pointer;
+        }
+        select {
+            width: 100%;
+            padding: 8px;
+            border-radius: 4px;
+            border: 1px solid #bdc3c7;
+            font-family: inherit;
+        }
+        .stats-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+            gap: 15px;
+            margin-bottom: 30px;
+        }
+        .stat-card {
+            background-color: #fff;
+            border: 1px solid #e0e6ed;
+            border-radius: 6px;
+            padding: 15px;
+            text-align: center;
+            box-shadow: 0 2px 4px rgba(0,0,0,0.02);
+        }
+        .stat-card.cost {
+            background-color: #fff3cd;
+            border-color: #ffeeba;
+        }
+        .stat-card h3 {
+            margin: 0 0 10px 0;
+            font-size: 0.9em;
+            color: #7f8c8d;
+            text-transform: uppercase;
+        }
+        .stat-card .value {
+            font-size: 1.5em;
+            font-weight: bold;
+            color: #2c3e50;
+        }
+        .chart-container {
+            position: relative;
+            height: 300px;
+            width: 100%;
+        }
+        .footer {
+            margin-top: 30px;
+            text-align: center;
+            font-size: 0.8em;
+            color: #95a5a6;
+        }
+    </style>
+</head>
+<body>
+
+<div class="container">
+    <h1>Explorador del Despacho Energético</h1>
+    <p class="subtitle">Simulación simplificada del Sistema Interconectado Nacional (SIN) - Colombia</p>
+
+    <div class="controls">
+        <div class="control-group">
+            <label for="hidrologiaSlider">Nivel Agregado de Embalses (Aportación Hidrológica): <span id="hidrologiaVal">70%</span></label>
+            <input type="range" id="hidrologiaSlider" min="20" max="100" value="70">
+            <div style="display: flex; justify-content: space-between; font-size: 0.8em; color: #7f8c8d; mt-1">
+                <span>Sequía (El Niño)</span>
+                <span>Normal</span>
+                <span>Abundancia (La Niña)</span>
+            </div>
+        </div>
+
+        <div class="control-group">
+            <label for="climaSelect">Condición de Radiación Solar:</label>
+            <select id="climaSelect">
+                <option value="soleado">Día Despejado (Alta generación fotovoltaica)</option>
+                <option value="nublado">Día Nublado (Baja generación fotovoltaica)</option>
+            </select>
+        </div>
+    </div>
+
+    <div class="stats-grid">
+        <div class="stat-card">
+            <h3>Demanda Total</h3>
+            <div class="value">230 GWh/día</div>
+        </div>
+        <div class="stat-card">
+            <h3>Hidroeléctrica</h3>
+            <div class="value" id="valHidro">74.2%</div>
+        </div>
+        <div class="stat-card">
+            <h3>Térmica</h3>
+            <div class="value" id="valTermica">21.1%</div>
+        </div>
+        <div class="stat-card cost">
+            <h3>Costo Marginal Est.</h3>
+            <div class="value" id="valCosto">$ 250 /kWh</div>
+        </div>
+    </div>
+
+    <div class="chart-container">
+        <canvas id="mixChart"></canvas>
+    </div>
+
+    <div class="footer">
+        * Nota para clase: El costo marginal es una aproximación didáctica basada en el mérito de las plantas. A menor nivel de embalse, ingresan plantas térmicas más costosas (carbón, gas, líquidos).
+    </div>
+</div>
+
+<script>
+    // Variables iniciales y constantes (Base 2025)
+    const OTRAS_RENOVABLES = 1.25; // Biomasa, eólica (fijo para simplificar)
+    let chartInstance = null;
+
+    // Elementos del DOM
+    const slider = document.getElementById('hidrologiaSlider');
+    const hidrologiaVal = document.getElementById('hidrologiaVal');
+    const climaSelect = document.getElementById('climaSelect');
+    
+    const valHidro = document.getElementById('valHidro');
+    const valTermica = document.getElementById('valTermica');
+    const valCosto = document.getElementById('valCosto');
+
+    // Inicializar Gráfica
+    function initChart() {
+        const ctx = document.getElementById('mixChart').getContext('2d');
+        chartInstance = new Chart(ctx, {
+            type: 'bar',
+            data: {
+                labels: ['Despacho Diario (GWh)'],
+                datasets: [
+                    { label: 'Hidráulica', data: [0], backgroundColor: '#3498db' },
+                    { label: 'Térmica', data: [0], backgroundColor: '#e74c3c' },
+                    { label: 'Solar Fotovoltaica', data: [0], backgroundColor: '#f1c40f' },
+                    { label: 'Otras (Biomasa/Eólica)', data: [0], backgroundColor: '#2ecc71' }
+                ]
+            },
+            options: {
+                responsive: true,
+                maintainAspectRatio: false,
+                scales: {
+                    x: { stacked: true, display: false },
+                    y: { 
+                        stacked: true, 
+                        max: 100, 
+                        title: { display: true, text: 'Porcentaje del Despacho (%)' }
+                    }
+                },
+                plugins: {
+                    tooltip: {
+                        callbacks: {
+                            label: function(context) {
+                                return context.dataset.label + ': ' + context.parsed.y.toFixed(2) + '%';
+                            }
+                        }
+                    }
+                }
+            }
+        });
+    }
+
+    // Lógica de cálculo del despacho
+    function actualizarModelo() {
+        const hidrologia = parseInt(slider.value);
+        hidrologiaVal.innerText = hidrologia + '%';
+        const clima = climaSelect.value;
+
+        // 1. Calcular Solar
+        let solar = (clima === 'soleado') ? 3.52 : 1.0;
+
+        // 2. Calcular Hidráulica (depende linealmente del embalse para este modelo simplificado)
+        // Si el embalse es 100%, hidro es ~85%. Si es 20%, hidro cae al ~40%
+        let hidro = 40 + ((hidrologia - 20) * (45 / 80));
+
+        // 3. Calcular Térmica (cubre el déficit)
+        let termica = 100 - hidro - solar - OTRAS_RENOVABLES;
+
+        // Validaciones de seguridad para la simulación
+        if (termica < 0) {
+            hidro += termica; // Si sobra energía, se reduce el despacho hidroeléctrico
+            termica = 0;
+        }
+
+        // 4. Calcular Costo Marginal (Aproximación pedagógica)
+        // Asumimos costos: Hidro = $100, Solar/Otras = $80, Térmica = $800
+        let costoBase = (hidro * 100 + termica * 800 + solar * 80 + OTRAS_RENOVABLES * 80) / 100;
+        
+        // Actualizar UI
+        valHidro.innerText = hidro.toFixed(1) + '%';
+        valTermica.innerText = termica.toFixed(1) + '%';
+        valCosto.innerText = '$ ' + Math.round(costoBase) + ' /kWh';
+
+        // Actualizar Gráfica
+        chartInstance.data.datasets[0].data = [hidro];
+        chartInstance.data.datasets[1].data = [termica];
+        chartInstance.data.datasets[2].data = [solar];
+        chartInstance.data.datasets[3].data = [OTRAS_RENOVABLES];
+        chartInstance.update();
+    }
+
+    // Event Listeners
+    slider.addEventListener('input', actualizarModelo);
+    climaSelect.addEventListener('change', actualizarModelo);
+
+    // Inicialización
+    initChart();
+    actualizarModelo();
+</script>
+
+</body>
+</html>
