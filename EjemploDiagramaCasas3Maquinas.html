@@ -1,0 +1,235 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Simulador de Reparto de Carga 3D</title>
+    <script src="https://cdn.plot.ly/plotly-2.27.0.min.js"></script>
+    <style>
+        body {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            margin: 0;
+            padding: 0;
+            display: flex;
+            height: 100vh;
+            background-color: #f4f7f6;
+        }
+        #sidebar {
+            width: 350px;
+            background-color: #ffffff;
+            padding: 20px;
+            box-shadow: 2px 0 5px rgba(0,0,0,0.1);
+            overflow-y: auto;
+            z-index: 10;
+        }
+        #plot-container {
+            flex-grow: 1;
+            padding: 0;
+            position: relative;
+        }
+        #plot {
+            width: 100%;
+            height: 100%;
+        }
+        h2 { font-size: 1.2rem; color: #333; border-bottom: 2px solid #eee; padding-bottom: 5px;}
+        h3 { font-size: 1rem; color: #555; margin-bottom: 5px; margin-top: 15px;}
+        .control-group { margin-bottom: 15px; }
+        .control-group label { display: flex; justify-content: space-between; font-size: 0.9rem; color: #666; margin-bottom: 3px;}
+        input[type=range] { width: 100%; }
+        .panel { background: #f9f9f9; padding: 10px; border-radius: 8px; border: 1px solid #ddd; margin-bottom: 15px; }
+        .gen-1 { border-left: 4px solid #ff4136; }
+        .gen-2 { border-left: 4px solid #0074d9; }
+        .gen-3 { border-left: 4px solid #2ecc40; }
+        .results { background: #eef2f5; padding: 15px; border-radius: 8px; font-weight: bold; color: #2c3e50;}
+    </style>
+</head>
+<body>
+
+    <div id="sidebar">
+        <h2>Parámetros del Sistema</h2>
+        
+        <div class="panel">
+            <div class="control-group">
+                <label><span>Carga Total del Sistema (kW)</span> <span id="val_Pcar">4.5</span></label>
+                <input type="range" id="Pcar" min="0" max="15" step="0.1" value="4.5">
+            </div>
+        </div>
+
+        <div class="panel gen-1">
+            <h3>Generador 1 (Rojo)</h3>
+            <div class="control-group">
+                <label><span>Frecuencia en vacío (Hz)</span> <span id="val_fv1">61.0</span></label>
+                <input type="range" id="fv1" min="55" max="65" step="0.1" value="61.0">
+            </div>
+            <div class="control-group">
+                <label><span>Estatismo (Hz/kW)</span> <span id="val_m1">0.5</span></label>
+                <input type="range" id="m1" min="0.1" max="2.0" step="0.05" value="0.5">
+            </div>
+        </div>
+
+        <div class="panel gen-2">
+            <h3>Generador 2 (Azul)</h3>
+            <div class="control-group">
+                <label><span>Frecuencia en vacío (Hz)</span> <span id="val_fv2">61.5</span></label>
+                <input type="range" id="fv2" min="55" max="65" step="0.1" value="61.5">
+            </div>
+            <div class="control-group">
+                <label><span>Estatismo (Hz/kW)</span> <span id="val_m2">0.8</span></label>
+                <input type="range" id="m2" min="0.1" max="2.0" step="0.05" value="0.8">
+            </div>
+        </div>
+
+        <div class="panel gen-3">
+            <h3>Generador 3 (Verde)</h3>
+            <div class="control-group">
+                <label><span>Frecuencia en vacío (Hz)</span> <span id="val_fv3">60.8</span></label>
+                <input type="range" id="fv3" min="55" max="65" step="0.1" value="60.8">
+            </div>
+            <div class="control-group">
+                <label><span>Estatismo (Hz/kW)</span> <span id="val_m3">0.6</span></label>
+                <input type="range" id="m3" min="0.1" max="2.0" step="0.05" value="0.6">
+            </div>
+        </div>
+
+        <div class="results" id="resultados_texto">
+            Frecuencia del Sistema: -- Hz
+        </div>
+    </div>
+
+    <div id="plot-container">
+        <div id="plot"></div>
+    </div>
+
+    <script>
+        // Variables globales
+        const inputs = ['Pcar', 'fv1', 'm1', 'fv2', 'm2', 'fv3', 'm3'];
+        
+        // Inicializar el gráfico
+        function updateSimulation() {
+            // 1. Leer valores de los sliders
+            const Pcar = parseFloat(document.getElementById('Pcar').value);
+            const fv1 = parseFloat(document.getElementById('fv1').value);
+            const m1 = parseFloat(document.getElementById('m1').value);
+            const fv2 = parseFloat(document.getElementById('fv2').value);
+            const m2 = parseFloat(document.getElementById('m2').value);
+            const fv3 = parseFloat(document.getElementById('fv3').value);
+            const m3 = parseFloat(document.getElementById('m3').value);
+
+            // Actualizar etiquetas de texto
+            inputs.forEach(id => {
+                document.getElementById('val_' + id).innerText = document.getElementById(id).value;
+            });
+
+            // 2. Formulación Matemática
+            const termino_cte = (fv1/m1) + (fv2/m2) + (fv3/m3);
+            const termino_f = (1/m1) + (1/m2) + (1/m3);
+            
+            // Frecuencia del sistema
+            let f_sys = (termino_cte - Pcar) / termino_f;
+
+            // Potencias de cada máquina
+            let P1 = (fv1 - f_sys) / m1;
+            let P2 = (fv2 - f_sys) / m2;
+            let P3 = (fv3 - f_sys) / m3;
+
+            // Actualizar panel de resultados
+            document.getElementById('resultados_texto').innerHTML = `
+                Frecuencia del Sistema: ${f_sys.toFixed(3)} Hz <br>
+                P1: ${P1.toFixed(2)} kW <br>
+                P2: ${P2.toFixed(2)} kW <br>
+                P3: ${P3.toFixed(2)} kW
+            `;
+
+            // 3. Preparar datos para 3D (Plotly)
+            const angle1 = 0;
+            const angle2 = 2 * Math.PI / 3; // 120 grados
+            const angle3 = 4 * Math.PI / 3; // 240 grados
+
+            const P_max = 10; // Límite para dibujar las líneas
+
+            // Función auxiliar para crear líneas de estatismo
+            function createLineTrace(fv, m, angle, name, color) {
+                // Punto inicial (vacío) y punto final
+                const x = [0, P_max * Math.cos(angle)];
+                const y = [0, P_max * Math.sin(angle)];
+                const z = [fv, fv - m * P_max];
+                return {
+                    type: 'scatter3d', mode: 'lines',
+                    x: x, y: y, z: z,
+                    line: {color: color, width: 6},
+                    name: name
+                };
+            }
+
+            // Trazos de los 3 generadores
+            const trace1 = createLineTrace(fv1, m1, angle1, 'Gen 1', '#ff4136');
+            const trace2 = createLineTrace(fv2, m2, angle2, 'Gen 2', '#0074d9');
+            const trace3 = createLineTrace(fv3, m3, angle3, 'Gen 3', '#2ecc40');
+
+            // 4. Crear el Plano de Operación
+            const planeSize = 8;
+            const tracePlane = {
+                type: 'surface',
+                x: [[-planeSize, planeSize], [-planeSize, planeSize]],
+                y: [[-planeSize, -planeSize], [planeSize, planeSize]],
+                z: [[f_sys, f_sys], [f_sys, f_sys]],
+                opacity: 0.4,
+                colorscale: [[0, 'gray'], [1, 'gray']],
+                showscale: false,
+                name: 'Plano Fsys',
+                hoverinfo: 'skip'
+            };
+
+            // 5. Puntos de Operación y Textos
+            const op_x = [P1 * Math.cos(angle1), P2 * Math.cos(angle2), P3 * Math.cos(angle3)];
+            const op_y = [P1 * Math.sin(angle1), P2 * Math.sin(angle2), P3 * Math.sin(angle3)];
+            const op_z = [f_sys, f_sys, f_sys];
+            const textLabels = [`<b>P1 = ${P1.toFixed(2)} kW</b>`, `<b>P2 = ${P2.toFixed(2)} kW</b>`, `<b>P3 = ${P3.toFixed(2)} kW</b>`];
+
+            const tracePoints = {
+                type: 'scatter3d',
+                mode: 'markers+text',
+                x: op_x, y: op_y, z: op_z,
+                marker: { size: 6, color: ['#ff4136', '#0074d9', '#2ecc40'] },
+                text: textLabels,
+                textposition: 'top center',
+                textfont: { size: 14, color: '#000' },
+                name: 'Puntos de Operación'
+            };
+
+            // Eje Z central de referencia
+            const traceAxis = {
+                type: 'scatter3d', mode: 'lines',
+                x: [0,0], y: [0,0], z: [55, 65],
+                line: {color: 'black', width: 2, dash: 'dash'},
+                showlegend: false, hoverinfo: 'skip'
+            };
+
+            const data = [trace1, trace2, trace3, tracePlane, tracePoints, traceAxis];
+
+            const layout = {
+                title: 'Diagrama de Reparto de Carga en 3D',
+                margin: { l: 0, r: 0, b: 0, t: 40 },
+                scene: {
+                    xaxis: { title: 'X (Potencia Proyectada)', range: [-planeSize, planeSize], showticklabels: false},
+                    yaxis: { title: 'Y (Potencia Proyectada)', range: [-planeSize, planeSize], showticklabels: false},
+                    zaxis: { title: 'Frecuencia (Hz)', range: [56, 63] },
+                    camera: { eye: {x: 1.5, y: -1.5, z: 0.8} }
+                },
+                showlegend: false
+            };
+
+            Plotly.react('plot', data, layout, {responsive: true});
+        }
+
+        // Añadir eventos a los sliders para que se actualice en tiempo real
+        inputs.forEach(id => {
+            document.getElementById(id).addEventListener('input', updateSimulation);
+        });
+
+        // Dibujar por primera vez al cargar la página
+        updateSimulation();
+
+    </script>
+</body>
+</html>
